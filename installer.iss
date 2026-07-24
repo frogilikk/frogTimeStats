@@ -1,6 +1,6 @@
 [Setup]
 AppName=frogTimeStats
-AppVersion=1.0
+AppVersion=1.0.2
 AppPublisher=frogilik
 DefaultDirName={autopf}\frogTimeStats
 DefaultGroupName=frogTimeStats

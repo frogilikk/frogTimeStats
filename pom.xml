@@ -34,28 +34,27 @@
             <artifactId>jna</artifactId>
             <version>5.14.0</version>
         </dependency>
-
-        <!-- JNA Platform: Обёртки под Windows API -->
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna-platform</artifactId>
             <version>5.14.0</version>
         </dependency>
 
-        <!-- SQLite JDBC: База данных -->
+        <!-- SQLite JDBC -->
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
             <version>3.45.1.0</version>
         </dependency>
 
-        <!-- SLF4J: Заглушка логгера -->
+        <!-- SLF4J Заглушка -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-nop</artifactId>
             <version>2.0.12</version>
         </dependency>
 
+        <!-- SystemTray -->
         <dependency>
             <groupId>com.dorkbox</groupId>
             <artifactId>SystemTray</artifactId>
@@ -65,6 +64,7 @@
 
     <build>
         <plugins>
+            <!-- Maven Shade Plugin (Сборка Fat-JAR) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -78,8 +78,8 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <!-- Указываем класс-пустышку Launcher -->
-                                    <mainClass>com.frogilik.timestats.Main</mainClass>
+                                    <!-- Точка входа: класс Launcher -->
+                                    <mainClass>com.frogilik.timestats.Launcher</mainClass>
                                 </transformer>
                             </transformers>
                             <filters>
@@ -97,6 +97,7 @@
                 </executions>
             </plugin>
 
+            <!-- Launch4j Plugin (Упаковка в .exe) -->
             <plugin>
                 <groupId>com.akathist.maven.plugins.launch4j</groupId>
                 <artifactId>launch4j-maven-plugin</artifactId>
@@ -114,20 +115,19 @@
                             <jar>target/frogTimeStats-1.0-SNAPSHOT.jar</jar>
                             <errTitle>frogTimeStats Error</errTitle>
                             <classPath>
+                                <!-- Точка входа совпадает с Shade -->
                                 <mainClass>com.frogilik.timestats.Launcher</mainClass>
                             </classPath>
-                            <!-- Указываем относительный путь к JRE -->
                             <jre>
                                 <path>jre</path>
                                 <bundledJre64Bit>true</bundledJre64Bit>
                                 <bundledJreAsFallback>false</bundledJreAsFallback>
                                 <minVersion>21</minVersion>
-                                <!-- Флаги оптимизации памяти для Launch4j EXE -->
                                 <opts>
-                                    <opt>-Xms8m</opt>                      <!-- Начальный Heap всего 8 МБ -->
-                                    <opt>-Xmx64m</opt>                     <!-- Максимальный Heap ограничен 64 МБ -->
+                                    <opt>-Xms8m</opt>
+                                    <opt>-Xmx64m</opt>
                                     <opt>-XX:+UseG1GC</opt>
-                                    <opt>-XX:G1PeriodicGCInterval=10000</opt> <!-- Проводить фоновую уборку мусора каждые 10 сек -->
+                                    <opt>-XX:G1PeriodicGCInterval=10000</opt>
                                     <opt>-XX:G1PeriodicGCSystemLoadThreshold=0</opt>
                                 </opts>
                             </jre>
@@ -137,5 +137,4 @@
             </plugin>
         </plugins>
     </build>
-
 </project>

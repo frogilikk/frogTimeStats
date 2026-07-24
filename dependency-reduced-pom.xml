@@ -18,7 +18,7 @@
             <configuration>
               <transformers>
                 <transformer>
-                  <mainClass>com.frogilik.timestats.Launcher</mainClass>
+                  <mainClass>com.frogilik.timestats.Main</mainClass>
                 </transformer>
               </transformers>
               <filters>
@@ -59,6 +59,13 @@
                 <bundledJre64Bit>true</bundledJre64Bit>
                 <bundledJreAsFallback>false</bundledJreAsFallback>
                 <minVersion>21</minVersion>
+                <opts>
+                  <opt>-Xms8m</opt>
+                  <opt>-Xmx64m</opt>
+                  <opt>-XX:+UseG1GC</opt>
+                  <opt>-XX:G1PeriodicGCInterval=10000</opt>
+                  <opt>-XX:G1PeriodicGCSystemLoadThreshold=0</opt>
+                </opts>
               </jre>
             </configuration>
           </execution>
