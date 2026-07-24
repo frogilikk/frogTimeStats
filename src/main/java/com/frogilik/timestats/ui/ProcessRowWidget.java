@@ -1,16 +1,20 @@
 package com.frogilik.timestats.ui;
 
 import com.frogilik.timestats.model.AppActivity;
+import com.frogilik.timestats.util.IconExtractor;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 
 public class ProcessRowWidget {
 
     private final HBox rowNode;
+    private final ImageView iconView; // <--- Добавили ImageView
     private final Label nameLabel;
     private final ProgressBar progressBar;
     private final Label timeLabel;
@@ -21,6 +25,12 @@ public class ProcessRowWidget {
         rowNode.setPadding(new Insets(8, 12, 8, 12));
         rowNode.setStyle("-fx-background-color: #181825; -fx-background-radius: 6;");
         rowNode.setUserData(activity.processName());
+
+        // Настройка иконки
+        iconView = new ImageView();
+        iconView.setFitWidth(20);
+        iconView.setFitHeight(20);
+        iconView.setPreserveRatio(true);
 
         nameLabel = new Label();
         nameLabel.setPrefWidth(160);
@@ -36,7 +46,8 @@ public class ProcessRowWidget {
         timeLabel.setAlignment(Pos.CENTER_RIGHT);
         timeLabel.setStyle("-fx-text-fill: #a6adc8;");
 
-        rowNode.getChildren().addAll(nameLabel, progressBar, timeLabel);
+        // Помещаем iconView перед nameLabel!
+        rowNode.getChildren().addAll(iconView, nameLabel, progressBar, timeLabel);
         update(index, activity, percentage);
     }
 
@@ -44,6 +55,11 @@ public class ProcessRowWidget {
         nameLabel.setText(String.format("%d. %s", index, activity.processName()));
         progressBar.setProgress(percentage);
         timeLabel.setText(formatTime(activity.durationSeconds(), percentage));
+
+        // Извлекаем и обновляем иконку при каждом вызове update
+        // (Предполагается, что в AppActivity есть метод exePath() или getExePath())
+        Image icon = IconExtractor.getIconForProcess(activity.processName(), activity.exePath());
+        iconView.setImage(icon);
     }
 
     public HBox getNode() {

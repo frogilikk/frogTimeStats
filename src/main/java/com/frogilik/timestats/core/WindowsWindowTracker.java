@@ -21,7 +21,6 @@ public class WindowsWindowTracker implements WindowTracker {
     }
 
     private static void tryEnableDebugPrivilege() {
-        // Используем HANDLEByReference для надежного получения токена
         HANDLEByReference hTokenRef = new HANDLEByReference();
 
         if (!Advapi32.INSTANCE.OpenProcessToken(
@@ -53,18 +52,17 @@ public class WindowsWindowTracker implements WindowTracker {
     }
 
     @Override
-    public String getActiveProcessName() {
+    public String getActiveProcessPath() {
         HWND hwnd = User32.INSTANCE.GetForegroundWindow();
-        if (hwnd == null) return "Idle";
+        if (hwnd == null) return null;
 
         IntByReference processId = new IntByReference();
         User32.INSTANCE.GetWindowThreadProcessId(hwnd, processId);
 
         if (processId.getValue() == 0) {
-            return "System Idle Process";
+            return null;
         }
 
-        // Запрашиваем ограниченные права чтения информации о процессе
         HANDLE process = Kernel32.INSTANCE.OpenProcess(
                 WinNT.PROCESS_QUERY_LIMITED_INFORMATION,
                 false,
@@ -72,7 +70,6 @@ public class WindowsWindowTracker implements WindowTracker {
         );
 
         if (process == null) {
-            // Фолбэк для старых версий Windows или заблокированных процессов
             process = Kernel32.INSTANCE.OpenProcess(
                     Kernel32.PROCESS_QUERY_INFORMATION | Kernel32.PROCESS_VM_READ,
                     false,
@@ -84,23 +81,40 @@ public class WindowsWindowTracker implements WindowTracker {
             try {
                 char[] buffer = new char[1024];
 
-                // 1. Пробуем GetModuleFileNameExW
+                // 1. GetModuleFileNameExW
                 int len = Psapi.INSTANCE.GetModuleFileNameExW(process, null, buffer, buffer.length);
                 if (len > 0) {
-                    return new File(new String(buffer, 0, len)).getName();
+                    return new String(buffer, 0, len);
                 }
 
-                // 2. Пробуем QueryFullProcessImageNameW (Корректная передача IntByReference)
+                // 2. QueryFullProcessImageNameW
                 IntByReference size = new IntByReference(buffer.length);
                 if (Kernel32.INSTANCE.QueryFullProcessImageName(process, 0, buffer, size)) {
                     if (size.getValue() > 0) {
-                        return new File(new String(buffer, 0, size.getValue())).getName();
+                        return new String(buffer, 0, size.getValue());
                     }
                 }
             } finally {
                 Kernel32.INSTANCE.CloseHandle(process);
             }
         }
+
+        return null;
+    }
+
+    @Override
+    public String getActiveProcessName() {
+        String fullPath = getActiveProcessPath();
+        if (fullPath != null && !fullPath.isBlank()) {
+            return new File(fullPath).getName();
+        }
+
+        HWND hwnd = User32.INSTANCE.GetForegroundWindow();
+        if (hwnd == null) return "Idle";
+
+        IntByReference processId = new IntByReference();
+        User32.INSTANCE.GetWindowThreadProcessId(hwnd, processId);
+        if (processId.getValue() == 0) return "System Idle Process";
 
         return "Unknown Process";
     }

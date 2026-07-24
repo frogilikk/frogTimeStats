@@ -1,14 +1,32 @@
+# === Результаты сборки (Maven / Gradle / jpackage) ===
 target/
+dist/
+out/
+build/
+*.jar
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
-.kotlin
+!**/src/main/**/build/
+!**/src/test/**/build/
 
-### IntelliJ IDEA ###
-.idea/modules.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
+# === Встроенные среды выполнения Java (JRE/JDK) ===
+# Именно эти папки забили коммит на 180+ МБ!
+jre/
+jre_win/
+jre_linux/
+jre_mac/
+*.zip
+*.tar.gz
+
+# === Локальные базы данных и лог-файлы ===
+*.db
+*.sqlite
+*.log
+
+# === Настройки IDE ===
+.kotlin
+.idea/
 *.iws
 *.iml
 *.ipr
@@ -28,12 +46,10 @@ target/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
 ### VS Code ###
 .vscode/
 
-### Mac OS ###
+### Операционные системы ###
 .DS_Store
+Thumbs.db

@@ -11,6 +11,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class TrackingService {
 
@@ -30,12 +33,13 @@ public class TrackingService {
     private final ActivityRepository repository;
     private final Map<String, AppActivity> todayStats = new ConcurrentHashMap<>();
 
+    private ScheduledExecutorService scheduler;
     private volatile boolean isRunning = false;
     private LocalDate currentTrackingDate;
     private TimePeriod currentPeriod = TimePeriod.TODAY;
 
-    private static final int CHECK_INTERVAL_MS = 1000;
-    private static final int SAVE_INTERVAL_TICKS = 5;
+    private static final int CHECK_INTERVAL_MS = 1000;      // 1 секунда
+    private static final int SAVE_INTERVAL_TICKS = 30;     // Автосохранение каждые 30 секунд
     private int ticksSinceLastSave = 0;
 
     public TrackingService(WindowTracker windowTracker, ActivityRepository repository) {
@@ -43,8 +47,9 @@ public class TrackingService {
         this.repository = repository;
         this.currentTrackingDate = LocalDate.now();
 
+        // Загружаем сохраненную за сегодня статистику из базы при старте
         Map<String, AppActivity> todayData = repository.getStatsForRange(currentTrackingDate, currentTrackingDate);
-        if (todayData != null) {
+        if (todayData != null && !todayData.isEmpty()) {
             this.todayStats.putAll(todayData);
         }
     }
@@ -53,32 +58,53 @@ public class TrackingService {
         if (isRunning) return;
         isRunning = true;
 
-        Thread trackingThread = new Thread(() -> {
-            while (isRunning) {
-                try {
-                    tick();
-                    Thread.sleep(CHECK_INTERVAL_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-            saveAllToDb();
-        }, "time-tracker-thread");
+        scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread thread = new Thread(r, "time-tracker-thread");
+            thread.setDaemon(true);
+            return thread;
+        });
 
-        trackingThread.setDaemon(true);
-        trackingThread.start();
+        // Запуск периодического опроса раз в секунду
+        scheduler.scheduleAtFixedRate(this::tickSafe, 0, CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        System.out.println(">>> TrackingService успешно запущен.");
     }
 
     public synchronized void stop() {
-        this.isRunning = false;
+        if (!isRunning) return;
+        isRunning = false;
+
+        if (scheduler != null) {
+            scheduler.shutdown();
+            try {
+                if (!scheduler.awaitTermination(2, TimeUnit.SECONDS)) {
+                    scheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                scheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        // Финальный скид данных в БД
         saveAllToDb();
+        System.out.println(">>> TrackingService остановлен, данные сохранены.");
+    }
+
+    /**
+     * Обертка для перехвата исключений, чтобы падение трекера не убивало ScheduledExecutor
+     */
+    private void tickSafe() {
+        try {
+            tick();
+        } catch (Exception e) {
+            System.err.println("Ошибка при выполнении tick(): " + e.getMessage());
+        }
     }
 
     private void tick() {
         LocalDate today = LocalDate.now();
 
-        // Сброс при смене дня
+        // Сброс при смене дня (полночь)
         if (!today.equals(currentTrackingDate)) {
             saveAllToDb();
             todayStats.clear();
@@ -88,17 +114,24 @@ public class TrackingService {
         }
 
         String process = windowTracker.getActiveProcessName();
-        String title = windowTracker.getActiveWindowTitle();
 
-        if (process == null || process.equalsIgnoreCase("Unknown") || process.isBlank()) {
+        // Быстрая проверка имени процесса
+        if (process == null || process.isBlank() || process.equalsIgnoreCase("Unknown")) {
             return;
         }
 
-        // Обновляем счетчик ТОЛЬКО в оперативной памяти за СЕГОДНЯ
+        // Достаем заголовок окна и полный путь к .exe
+        String title = windowTracker.getActiveWindowTitle();
+        String exePath = windowTracker.getActiveProcessPath(); // <--- Новый вызов!
+
+        // Обновляем статистику за сегодня в ОЗУ
         todayStats.compute(process, (key, currentActivity) -> {
             if (currentActivity == null) {
-                return new AppActivity(process, title, 1, LocalDateTime.now());
+                // Используем новый конструктор с exePath
+                return new AppActivity(process, exePath, title, 1, LocalDateTime.now());
             } else {
+                currentActivity.updateTitle(title);
+                currentActivity.updateExePath(exePath); // Подтягиваем путь, если его не было
                 return currentActivity.addTime(1);
             }
         });
@@ -111,7 +144,13 @@ public class TrackingService {
     }
 
     private void saveAllToDb() {
-        todayStats.values().forEach(activity -> repository.saveOrUpdate(activity, currentTrackingDate));
+        if (todayStats.isEmpty()) return;
+        try {
+            // Сохраняем все накопившиеся элементы пакетом
+            repository.saveOrUpdateAll(todayStats.values(), currentTrackingDate);
+        } catch (Exception e) {
+            System.err.println("Ошибка пакетного сохранения в БД: " + e.getMessage());
+        }
     }
 
     public void setTimePeriod(TimePeriod period) {
@@ -134,7 +173,8 @@ public class TrackingService {
 
             case YESTERDAY:
                 LocalDate yesterday = now.minusDays(1);
-                return repository.getStatsForRange(yesterday, yesterday);
+                Map<String, AppActivity> yesterdayStats = repository.getStatsForRange(yesterday, yesterday);
+                return yesterdayStats != null ? yesterdayStats : Collections.emptyMap();
 
             case WEEK:
                 LocalDate startOfWeek = now.with(DayOfWeek.MONDAY);
@@ -159,15 +199,19 @@ public class TrackingService {
      * Объединяет архивные данные из БД с несохраненными секундами текущей сессии в RAM
      */
     private Map<String, AppActivity> mergeWithToday(Map<String, AppActivity> archivedStats) {
-        Map<String, AppActivity> merged = new HashMap<>(archivedStats);
+        Map<String, AppActivity> merged = (archivedStats != null) ? new HashMap<>(archivedStats) : new HashMap<>();
 
         todayStats.forEach((process, activity) -> {
             merged.compute(process, (k, existing) -> {
                 if (existing == null) {
                     return activity;
                 } else {
+                    // Приоритет отдаем существующему exePath или берём из текущей сессии
+                    String exePath = (existing.getExePath() != null) ? existing.getExePath() : activity.getExePath();
+
                     return new AppActivity(
                             process,
+                            exePath,
                             activity.windowTitle(),
                             existing.durationSeconds() + activity.durationSeconds(),
                             LocalDateTime.now()

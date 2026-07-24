@@ -51,6 +51,14 @@ public class App extends Application {
             if (primaryStage != null) {
                 primaryStage.hide();
                 System.out.println(">>> Окно скрыто в трей");
+
+                // 1. Окращаем работу UI в фоновом режиме
+                if (mainViewController != null) {
+                    mainViewController.stopAutoUpdate();
+                }
+
+                // 2. Вызываем GC для освобождения кучи до 15-30 МБ
+                System.gc();
             }
         });
     }
@@ -59,6 +67,11 @@ public class App extends Application {
         System.out.println(">>> Запрос на открытие окна из трея...");
         Platform.runLater(() -> {
             if (primaryStage == null) return;
+
+            // Возобновляем обновление UI при поимке фокуса
+            if (mainViewController != null) {
+                mainViewController.startAutoUpdate();
+            }
 
             if (!primaryStage.isShowing()) {
                 primaryStage.show();
@@ -108,7 +121,7 @@ public class App extends Application {
     }
 
     private BufferedImage createTrayIconImage() {
-        int size = 32; // Для Linux лучше 32x32 (автомасштабируется)
+        int size = 32; // Для Linux/Windows 32x32
         BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2 = image.createGraphics();
 

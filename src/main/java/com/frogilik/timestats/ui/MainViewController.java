@@ -168,7 +168,7 @@ public class MainViewController {
         return root;
     }
 
-    private void startAutoUpdate() {
+    public void startAutoUpdate() {
         autoUpdateTimeline = new Timeline(new KeyFrame(Duration.seconds(1), e -> loadData()));
         autoUpdateTimeline.setCycleCount(Timeline.INDEFINITE);
         autoUpdateTimeline.play();
