@@ -5,51 +5,55 @@ import com.frogilik.timestats.core.WindowTracker;
 import com.frogilik.timestats.core.WindowsWindowTracker;
 import com.frogilik.timestats.repository.ActivityRepository;
 import com.frogilik.timestats.repository.DatabaseManager;
+import com.frogilik.timestats.service.AutoStartService;
 import com.frogilik.timestats.service.TrackingService;
+import dorkbox.systemTray.SystemTray;
+import javafx.application.Application;
 
 public class Main {
-    public static void main(String[] args) throws InterruptedException {
+
+    private static TrackingService trackingService;
+
+    public static TrackingService getTrackingService() {
+        return trackingService;
+    }
+
+    public static void main(String[] args) {
+        // Принудительно задаем GTK3 для Dorkbox и JavaFX под Linux
+        System.setProperty("jdk.gtk.version", "3");
+
+        // Включаем нативный автодетект DBus/AppIndicator для Linux
+        SystemTray.FORCE_GTK2 = false;
+
+        // 0. Автодобавление в реестр (Windows)
+        AutoStartService.registerAutoStart();
+
+        // 1. Инициализируем БД
         DatabaseManager.initDatabase();
 
-        boolean isWindows = System.getProperty("os.name").toLowerCase().contains("win");
+        // 2. Определяем ОС и нужный трекер
+        String osName = System.getProperty("os.name").toLowerCase();
+        boolean isWindows = osName.contains("win");
         WindowTracker tracker = isWindows ? new WindowsWindowTracker() : new LinuxWindowTracker();
-
-        ActivityRepository repository = new ActivityRepository();
-        TrackingService trackingService = new TrackingService(tracker, repository);
 
         System.out.println(">>> Запуск трекера на ОС: " + System.getProperty("os.name"));
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("\n>>> Остановка трекера и сохранение данных...");
-            trackingService.stop();
-        }));
+        // 3. Создаем репозиторий и сервис
+        ActivityRepository repository = new ActivityRepository();
+        trackingService = new TrackingService(tracker, repository);
 
+        // 4. Запуск фонового отслеживания
         trackingService.start();
 
-        while (true) {
-            Thread.sleep(3000);
+        // 5. Хук завершения процесса
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (trackingService != null) {
+                System.out.println("\n>>> Остановка трекера и сохранение данных...");
+                trackingService.stop();
+            }
+        }));
 
-            System.out.println("\n--- СТАТИСТИКА ЗА СЕГОДНЯ ---");
-            trackingService.getStats().forEach((process, activity) -> {
-                System.out.printf("Приложение: %-18s | Время: %-10s | Заголовок: %s%n",
-                        activity.processName(),
-                        formatDuration(activity.durationSeconds()),
-                        activity.windowTitle());
-            });
-        }
-    }
-
-    private static String formatDuration(long totalSeconds) {
-        long hours = totalSeconds / 3600;
-        long minutes = (totalSeconds % 3600) / 60;
-        long seconds = totalSeconds % 60;
-
-        if (hours > 0) {
-            return String.format("%dч %02dмин", hours, minutes);
-        } else if (minutes > 0) {
-            return String.format("%dмин %02dсек", minutes, seconds);
-        } else {
-            return String.format("%dсек", seconds);
-        }
+        // 6. Запускаем JavaFX UI Приложение
+        Application.launch(App.class, args);
     }
 }

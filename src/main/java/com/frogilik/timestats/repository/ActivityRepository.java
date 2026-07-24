@@ -11,7 +11,7 @@ import java.util.Map;
 public class ActivityRepository {
 
     /**
-     * Сохраняет статистику с указанием конкретной даты
+     * Сохраняет или обновляет статистику процесса за конкретную дату.
      */
     public void saveOrUpdate(AppActivity activity, LocalDate date) {
         String sql = """
@@ -39,51 +39,33 @@ public class ActivityRepository {
     }
 
     /**
-     * Загружает данные за СЕГОДНЯ
+     * Загружает данные за СЕГОДНЯ.
      */
     public Map<String, AppActivity> loadTodayStats() {
         return getStatsForDate(LocalDate.now());
     }
 
     /**
-     * Получить статистику за конкретный день (например, ВЧЕРА: LocalDate.now().minusDays(1))
+     * Получает статистику за конкретный один день (например, ВЧЕРА).
      */
     public Map<String, AppActivity> getStatsForDate(LocalDate date) {
-        Map<String, AppActivity> result = new HashMap<>();
-        String sql = "SELECT process_name, window_title, duration_seconds, last_active FROM daily_activity WHERE date = ?";
-
-        try (Connection conn = DatabaseManager.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-
-            pstmt.setString(1, date.toString());
-            ResultSet rs = pstmt.executeQuery();
-
-            while (rs.next()) {
-                String process = rs.getString("process_name");
-                String title = rs.getString("window_title");
-                long duration = rs.getLong("duration_seconds");
-                LocalDateTime lastActive = LocalDateTime.parse(rs.getString("last_active"));
-
-                result.put(process, new AppActivity(process, title, duration, lastActive));
-            }
-        } catch (SQLException e) {
-            System.err.println("Ошибка чтения данных за дату: " + e.getMessage());
-        }
-
-        return result;
+        return getStatsForRange(date, date);
     }
 
     /**
-     * СУММАРНАЯ статистика за последние N дней (например, за 7 дней)
+     * Получает СУММАРНУЮ статистику за произвольный диапазон дат [startDate, endDate].
+     * Суммирует duration_seconds для каждого процесса.
      */
-    public Map<String, Long> getAggregatedStatsForLastDays(int days) {
-        Map<String, Long> result = new HashMap<>();
-        LocalDate startDate = LocalDate.now().minusDays(days);
+    public Map<String, AppActivity> getStatsForRange(LocalDate startDate, LocalDate endDate) {
+        Map<String, AppActivity> result = new HashMap<>();
 
         String sql = """
-            SELECT process_name, SUM(duration_seconds) as total_duration
+            SELECT process_name, 
+                   MAX(window_title) AS window_title, 
+                   SUM(duration_seconds) AS total_duration, 
+                   MAX(last_active) AS max_last_active
             FROM daily_activity
-            WHERE date >= ?
+            WHERE date BETWEEN ? AND ?
             GROUP BY process_name
             ORDER BY total_duration DESC;
             """;
@@ -92,15 +74,32 @@ public class ActivityRepository {
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
             pstmt.setString(1, startDate.toString());
+            pstmt.setString(2, endDate.toString());
             ResultSet rs = pstmt.executeQuery();
 
             while (rs.next()) {
-                result.put(rs.getString("process_name"), rs.getLong("total_duration"));
+                String process = rs.getString("process_name");
+                String title = rs.getString("window_title");
+                long duration = rs.getLong("total_duration");
+
+                String lastActiveStr = rs.getString("max_last_active");
+                LocalDateTime lastActive = lastActiveStr != null
+                        ? LocalDateTime.parse(lastActiveStr)
+                        : LocalDateTime.now();
+
+                result.put(process, new AppActivity(process, title, duration, lastActive));
             }
         } catch (SQLException e) {
-            System.err.println("Ошибка при подсчете аналитики за период: " + e.getMessage());
+            System.err.println("Ошибка чтения данных за диапазон дат: " + e.getMessage());
         }
 
         return result;
+    }
+
+    /**
+     * Возвращает статистику за ВСЕ время работы приложения.
+     */
+    public Map<String, AppActivity> getAllTimeStats() {
+        return getStatsForRange(LocalDate.of(2000, 1, 1), LocalDate.of(2099, 12, 31));
     }
 }

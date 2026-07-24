@@ -1,46 +1,122 @@
 package com.frogilik.timestats;
 
-import com.frogilik.timestats.core.LinuxWindowTracker;
-import com.frogilik.timestats.repository.ActivityRepository;
 import com.frogilik.timestats.service.TrackingService;
 import com.frogilik.timestats.ui.MainViewController;
+import dorkbox.systemTray.Menu;
+import dorkbox.systemTray.MenuItem;
+import dorkbox.systemTray.SystemTray;
 import javafx.application.Application;
+import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
 
+import java.awt.*;
+import java.awt.image.BufferedImage;
+
 public class App extends Application {
 
+    private Stage primaryStage;
     private TrackingService trackingService;
+    private MainViewController mainViewController;
 
     @Override
     public void start(Stage stage) {
-        // 1. Инициализируем репозиторий и трекер
-        ActivityRepository repository = new ActivityRepository();
-        LinuxWindowTracker linuxTracker = new LinuxWindowTracker();
+        this.primaryStage = stage;
 
-        trackingService = new TrackingService(linuxTracker, repository);
+        // Запрещаем автоматическое завершение JavaFX при закрытии окон
+        Platform.setImplicitExit(false);
 
-        // 2. Запускаем фоновый поток отслеживания
-        trackingService.start();
+        trackingService = Main.getTrackingService();
+        mainViewController = new MainViewController(trackingService);
 
-        // 3. Создаем контроллер UI и сцену
-        MainViewController mainViewController = new MainViewController(trackingService);
         Scene scene = new Scene(mainViewController.getView(), 950, 650);
 
         stage.setTitle("frogTimeStats");
         stage.setScene(scene);
 
-        // 4. Гарантируем сохранение в БД при закрытии окна
+        // Перехватываем "крестик"
         stage.setOnCloseRequest(event -> {
-            if (trackingService != null) {
-                trackingService.stop(); // Остановит поток и сбросит остатки в БД
-            }
+            event.consume();
+            hideStage();
         });
+
+        // Создаем системный трей
+        createSystemTray();
 
         stage.show();
     }
 
-    public static void main(String[] args) {
-        launch(args);
+    private void hideStage() {
+        Platform.runLater(() -> {
+            if (primaryStage != null) {
+                primaryStage.hide();
+                System.out.println(">>> Окно скрыто в трей");
+            }
+        });
+    }
+
+    private void showStage() {
+        System.out.println(">>> Запрос на открытие окна из трея...");
+        Platform.runLater(() -> {
+            if (primaryStage == null) return;
+
+            if (!primaryStage.isShowing()) {
+                primaryStage.show();
+            }
+
+            if (primaryStage.isIconified()) {
+                primaryStage.setIconified(false);
+            }
+
+            primaryStage.toFront();
+            primaryStage.requestFocus();
+            primaryStage.setAlwaysOnTop(true);
+            primaryStage.setAlwaysOnTop(false);
+        });
+    }
+
+    private void createSystemTray() {
+        // Получаем нативный трей
+        SystemTray systemTray = SystemTray.get();
+        if (systemTray == null) {
+            System.err.println(">>> ОШИБКА: Системный трей недоступен!");
+            return;
+        }
+
+        systemTray.setTooltip("frogTimeStats");
+
+        // Задаем иконку
+        BufferedImage icon = createTrayIconImage();
+        systemTray.setImage(icon);
+
+        // Настраиваем меню
+        Menu menu = systemTray.getMenu();
+
+        menu.add(new MenuItem("Показать окно", e -> showStage()));
+        menu.add(new MenuItem("Выход", e -> {
+            if (mainViewController != null) {
+                mainViewController.stopAutoUpdate();
+            }
+            if (trackingService != null) {
+                trackingService.stop();
+            }
+            Platform.exit();
+            System.exit(0);
+        }));
+
+        System.out.println(">>> Dorkbox Native SystemTray успешно создан!");
+    }
+
+    private BufferedImage createTrayIconImage() {
+        int size = 32; // Для Linux лучше 32x32 (автомасштабируется)
+        BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g2 = image.createGraphics();
+
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setColor(new java.awt.Color(166, 227, 161)); // Catppuccin Green
+        g2.fillOval(2, 2, size - 4, size - 4);
+
+        g2.dispose();
+        return image;
     }
 }

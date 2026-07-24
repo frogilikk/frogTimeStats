@@ -4,20 +4,36 @@ import com.frogilik.timestats.core.WindowTracker;
 import com.frogilik.timestats.model.AppActivity;
 import com.frogilik.timestats.repository.ActivityRepository;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class TrackingService {
 
+    public enum TimePeriod {
+        TODAY("Сегодня"),
+        YESTERDAY("Вчера"),
+        WEEK("За неделю"),
+        MONTH("За месяц"),
+        ALL_TIME("За все время");
+
+        private final String title;
+        TimePeriod(String title) { this.title = title; }
+        public String getTitle() { return title; }
+    }
+
     private final WindowTracker windowTracker;
     private final ActivityRepository repository;
-    private final Map<String, AppActivity> stats = new HashMap<>();
+    private final Map<String, AppActivity> todayStats = new ConcurrentHashMap<>();
 
-    private boolean isRunning = false;
-    private LocalDate currentTrackingDate; // Отслеживаем текущую дату
+    private volatile boolean isRunning = false;
+    private LocalDate currentTrackingDate;
+    private TimePeriod currentPeriod = TimePeriod.TODAY;
+
     private static final int CHECK_INTERVAL_MS = 1000;
     private static final int SAVE_INTERVAL_TICKS = 5;
     private int ticksSinceLastSave = 0;
@@ -27,11 +43,14 @@ public class TrackingService {
         this.repository = repository;
         this.currentTrackingDate = LocalDate.now();
 
-        // Загружаем сохранённое время за сегодня
-        this.stats.putAll(repository.loadTodayStats());
+        Map<String, AppActivity> todayData = repository.getStatsForRange(currentTrackingDate, currentTrackingDate);
+        if (todayData != null) {
+            this.todayStats.putAll(todayData);
+        }
     }
 
-    public void start() {
+    public synchronized void start() {
+        if (isRunning) return;
         isRunning = true;
 
         Thread trackingThread = new Thread(() -> {
@@ -51,19 +70,21 @@ public class TrackingService {
         trackingThread.start();
     }
 
-    public void stop() {
+    public synchronized void stop() {
         this.isRunning = false;
         saveAllToDb();
     }
 
     private void tick() {
-        // Проверяем: не наступил ли новый день (00:00)?
         LocalDate today = LocalDate.now();
+
+        // Сброс при смене дня
         if (!today.equals(currentTrackingDate)) {
-            System.out.println("\n>>> Наступил новый день! Сохраняем вчерашние данные и обнуляем счетчики...");
             saveAllToDb();
-            stats.clear();
+            todayStats.clear();
             currentTrackingDate = today;
+            ticksSinceLastSave = 0;
+            return;
         }
 
         String process = windowTracker.getActiveProcessName();
@@ -73,7 +94,8 @@ public class TrackingService {
             return;
         }
 
-        AppActivity updatedActivity = stats.compute(process, (key, currentActivity) -> {
+        // Обновляем счетчик ТОЛЬКО в оперативной памяти за СЕГОДНЯ
+        todayStats.compute(process, (key, currentActivity) -> {
             if (currentActivity == null) {
                 return new AppActivity(process, title, 1, LocalDateTime.now());
             } else {
@@ -83,18 +105,77 @@ public class TrackingService {
 
         ticksSinceLastSave++;
         if (ticksSinceLastSave >= SAVE_INTERVAL_TICKS) {
-            if (updatedActivity != null) {
-                repository.saveOrUpdate(updatedActivity, currentTrackingDate);
-            }
+            saveAllToDb();
             ticksSinceLastSave = 0;
         }
     }
 
     private void saveAllToDb() {
-        stats.values().forEach(activity -> repository.saveOrUpdate(activity, currentTrackingDate));
+        todayStats.values().forEach(activity -> repository.saveOrUpdate(activity, currentTrackingDate));
     }
 
+    public void setTimePeriod(TimePeriod period) {
+        this.currentPeriod = period;
+    }
+
+    public TimePeriod getCurrentPeriod() {
+        return currentPeriod;
+    }
+
+    /**
+     * Возвращает статистику в зависимости от выбранного временного периода.
+     */
     public Map<String, AppActivity> getStats() {
-        return Collections.unmodifiableMap(stats);
+        LocalDate now = LocalDate.now();
+
+        switch (currentPeriod) {
+            case TODAY:
+                return Collections.unmodifiableMap(todayStats);
+
+            case YESTERDAY:
+                LocalDate yesterday = now.minusDays(1);
+                return repository.getStatsForRange(yesterday, yesterday);
+
+            case WEEK:
+                LocalDate startOfWeek = now.with(DayOfWeek.MONDAY);
+                Map<String, AppActivity> weekDbStats = repository.getStatsForRange(startOfWeek, now);
+                return mergeWithToday(weekDbStats);
+
+            case MONTH:
+                LocalDate startOfMonth = now.withDayOfMonth(1);
+                Map<String, AppActivity> monthDbStats = repository.getStatsForRange(startOfMonth, now);
+                return mergeWithToday(monthDbStats);
+
+            case ALL_TIME:
+                Map<String, AppActivity> allDbStats = repository.getAllTimeStats();
+                return mergeWithToday(allDbStats);
+
+            default:
+                return Collections.unmodifiableMap(todayStats);
+        }
+    }
+
+    /**
+     * Объединяет архивные данные из БД с несохраненными секундами текущей сессии в RAM
+     */
+    private Map<String, AppActivity> mergeWithToday(Map<String, AppActivity> archivedStats) {
+        Map<String, AppActivity> merged = new HashMap<>(archivedStats);
+
+        todayStats.forEach((process, activity) -> {
+            merged.compute(process, (k, existing) -> {
+                if (existing == null) {
+                    return activity;
+                } else {
+                    return new AppActivity(
+                            process,
+                            activity.windowTitle(),
+                            existing.durationSeconds() + activity.durationSeconds(),
+                            LocalDateTime.now()
+                    );
+                }
+            });
+        });
+
+        return merged;
     }
 }

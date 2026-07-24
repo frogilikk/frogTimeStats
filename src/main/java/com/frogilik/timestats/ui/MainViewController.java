@@ -97,8 +97,8 @@ public class MainViewController {
 
         waveProgressBar.setOpacity(0.0);
 
-        // --- 1. ОПТИМАЛЬНАЯ СКОРОСТЬ ПРОКРУТКИ СЛИСКА ---
-        final double SCROLL_SPEED = 0.05; // Хорошая, отзивчивая скорость для списка
+        // --- 1. ОПТИМАЛЬНАЯ СКОРОСТЬ ПРОКРУТКИ СПИСКА ---
+        final double SCROLL_SPEED = 0.05;
 
         root.addEventFilter(ScrollEvent.SCROLL, event -> {
             event.consume();
@@ -106,19 +106,15 @@ public class MainViewController {
             double deltaY = event.getDeltaY();
             if (deltaY == 0) return;
 
-            // Направление скролла
             double direction = deltaY > 0 ? -1.0 : 1.0;
-
-            // Изменяем vvalue
             double newVvalue = scrollPane.getVvalue() + (direction * SCROLL_SPEED);
             scrollPane.setVvalue(Math.min(1.0, Math.max(0.0, newVvalue)));
         });
 
-        // --- 2. ТОЧНОЕ ПИКСЕЛЬНОЕ СЖАТИЕ И ПОЛНОЕ ИСЧЕЗНЕНИЕ/ПОРЯВЛЕНИЕ ---
+        // --- 2. СЖАТИЕ ДИАГРАММЫ ПРИ СКРОЛЛЕ ---
         scrollPane.vvalueProperty().addListener((obs, oldVal, newVal) -> {
             double scroll = newVal.doubleValue();
 
-            // 1. Точный крайний случай: мы в самом верху (скролл = 0)
             if (scroll <= 0.0) {
                 pieChartWidget.setPrefHeight(CustomPieChartWidget.DEFAULT_HEIGHT);
                 pieChartWidget.setMaxHeight(CustomPieChartWidget.DEFAULT_HEIGHT);
@@ -128,37 +124,37 @@ public class MainViewController {
                 return;
             }
 
-            // Получаем высоту контента для пиксельного расчета
             double contentHeight = scrollContent.getBoundsInLocal().getHeight();
             double viewportHeight = scrollPane.getViewportBounds().getHeight();
             double maxScrollPx = contentHeight - viewportHeight;
 
-            // Если контент помещается на экране, высчитываем от базовой высоты
             double scrollPx = (maxScrollPx > 0) ? scroll * maxScrollPx : scroll * CustomPieChartWidget.DEFAULT_HEIGHT;
-
-            // Высчитываем целевую высоту
             double targetHeight = Math.max(0.0, CustomPieChartWidget.DEFAULT_HEIGHT - scrollPx);
 
-            // Фактор исчезновения от 0.0 (полностью виден) до 1.0 (полностью сжат)
             double factor = 1.0 - (targetHeight / CustomPieChartWidget.DEFAULT_HEIGHT);
 
-            // Дожимаем мелкие погрешности float/double на границах
             if (factor >= 0.98) factor = 1.0;
             if (factor <= 0.02) factor = 0.0;
 
-            // Применяем прозрачность и размеры
             pieChartWidget.setOpacity(1.0 - factor);
             waveProgressBar.setOpacity(factor);
 
             pieChartWidget.setPrefHeight(targetHeight);
             pieChartWidget.setMaxHeight(targetHeight);
 
-            // Полностью скрываем узел, когда он сжался до 0
             pieChartWidget.setVisible(targetHeight > 0.5);
         });
 
-        // 5. Сайдбар
-        sidebarView = new SidebarView(this::loadData);
+        // --- 5. САЙДБАР С ВЫБОРОМ ПЕРИОДА ВРЕМЕНИ ---
+        sidebarView = new SidebarView(trackingService, selectedPeriod -> {
+            // При смене периода очищаем старые виджеты строк для корректной перерисовоки
+            processRowMap.clear();
+            detailsListContainer.getChildren().clear();
+
+            // Загружаем статистику за выбранный период
+            loadData();
+        });
+
         StackPane.setAlignment(sidebarView, Pos.TOP_LEFT);
         headerWidget.getMenuIcon().setOnMouseEntered(e -> sidebarView.show());
 
@@ -257,6 +253,7 @@ public class MainViewController {
             index++;
         }
 
+        // Удаляем приложения, у которых нет активности в выбранном периоде
         processRowMap.keySet().removeIf(procName -> {
             if (!activeProcessNames.contains(procName)) {
                 ProcessRowWidget widget = processRowMap.get(procName);
