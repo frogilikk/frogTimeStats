@@ -35,6 +35,7 @@ public class TrackingService {
 
     private ScheduledExecutorService scheduler;
     private volatile boolean isRunning = false;
+
     private LocalDate currentTrackingDate;
     private TimePeriod currentPeriod = TimePeriod.TODAY;
 
@@ -90,9 +91,6 @@ public class TrackingService {
         System.out.println(">>> TrackingService остановлен, данные сохранены.");
     }
 
-    /**
-     * Обертка для перехвата исключений, чтобы падение трекера не убивало ScheduledExecutor
-     */
     private void tickSafe() {
         try {
             tick();
@@ -122,16 +120,15 @@ public class TrackingService {
 
         // Достаем заголовок окна и полный путь к .exe
         String title = windowTracker.getActiveWindowTitle();
-        String exePath = windowTracker.getActiveProcessPath(); // <--- Новый вызов!
+        String exePath = windowTracker.getActiveProcessPath();
 
         // Обновляем статистику за сегодня в ОЗУ
         todayStats.compute(process, (key, currentActivity) -> {
             if (currentActivity == null) {
-                // Используем новый конструктор с exePath
                 return new AppActivity(process, exePath, title, 1, LocalDateTime.now());
             } else {
                 currentActivity.updateTitle(title);
-                currentActivity.updateExePath(exePath); // Подтягиваем путь, если его не было
+                currentActivity.updateExePath(exePath);
                 return currentActivity.addTime(1);
             }
         });
@@ -146,7 +143,6 @@ public class TrackingService {
     private void saveAllToDb() {
         if (todayStats.isEmpty()) return;
         try {
-            // Сохраняем все накопившиеся элементы пакетом
             repository.saveOrUpdateAll(todayStats.values(), currentTrackingDate);
         } catch (Exception e) {
             System.err.println("Ошибка пакетного сохранения в БД: " + e.getMessage());
@@ -161,9 +157,6 @@ public class TrackingService {
         return currentPeriod;
     }
 
-    /**
-     * Возвращает статистику в зависимости от выбранного временного периода.
-     */
     public Map<String, AppActivity> getStats() {
         LocalDate now = LocalDate.now();
 
@@ -195,9 +188,6 @@ public class TrackingService {
         }
     }
 
-    /**
-     * Объединяет архивные данные из БД с несохраненными секундами текущей сессии в RAM
-     */
     private Map<String, AppActivity> mergeWithToday(Map<String, AppActivity> archivedStats) {
         Map<String, AppActivity> merged = (archivedStats != null) ? new HashMap<>(archivedStats) : new HashMap<>();
 
@@ -206,7 +196,6 @@ public class TrackingService {
                 if (existing == null) {
                     return activity;
                 } else {
-                    // Приоритет отдаем существующему exePath или берём из текущей сессии
                     String exePath = (existing.getExePath() != null) ? existing.getExePath() : activity.getExePath();
 
                     return new AppActivity(

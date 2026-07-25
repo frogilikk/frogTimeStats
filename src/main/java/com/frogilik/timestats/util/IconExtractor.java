@@ -1,15 +1,18 @@
 package com.frogilik.timestats.util;
 
+import javafx.embed.swing.SwingFXUtils;
 import javafx.scene.image.Image;
 import javafx.scene.image.PixelWriter;
 import javafx.scene.image.WritableImage;
 import javafx.scene.paint.Color;
 
+import javax.imageio.ImageIO;
 import javax.swing.Icon;
 import javax.swing.filechooser.FileSystemView;
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -60,6 +63,25 @@ public class IconExtractor {
         KNOWN_ALIASES.put("org.kde.dolphin", new String[]{"system-file-manager", "dolphin"});
     }
 
+    /**
+     * Возвращает папку кэша иконок (~/.config/frogTimeStats/cache/icons или AppData/Roaming/frogTimeStats/cache/icons)
+     */
+    private static File getIconCacheDir() {
+        String userHome = System.getProperty("user.home");
+        File cacheDir;
+        if (IS_WINDOWS) {
+            String appData = System.getenv("APPDATA");
+            cacheDir = new File((appData != null ? appData : userHome), "frogTimeStats/cache/icons");
+        } else {
+            cacheDir = new File(userHome, ".config/frogTimeStats/cache/icons");
+        }
+
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs();
+        }
+        return cacheDir;
+    }
+
     public static Image getIconForProcess(String processName, String executablePath) {
         if (processName == null || processName.isBlank()) {
             return getDefaultIcon();
@@ -67,15 +89,28 @@ public class IconExtractor {
 
         String key = processName.toLowerCase().trim();
 
+        // 1. Быстрый поиск в RAM-кэше
         Image cached = ICON_CACHE.get(key);
         if (cached != null) {
             return cached;
         }
 
+        // Запускаем асинхронный поиск/загрузку с диска
         if (!PENDING_SEARCH.containsKey(key)) {
             PENDING_SEARCH.put(key, true);
             ASYNC_POOL.submit(() -> {
                 try {
+                    // 2. Поиск в ДИСКОВОМ кэше
+                    File cachedFile = new File(getIconCacheDir(), key + ".png");
+                    if (cachedFile.exists()) {
+                        Image diskImg = new Image(cachedFile.toURI().toString());
+                        if (!diskImg.isError() && diskImg.getWidth() > 0) {
+                            ICON_CACHE.put(key, diskImg);
+                            return;
+                        }
+                    }
+
+                    // 3. Если на диске нет — ищем в системе
                     Image icon = null;
                     if (IS_WINDOWS && executablePath != null && !executablePath.isBlank()) {
                         icon = extractIconFromFileSystemWindows(executablePath);
@@ -83,8 +118,10 @@ public class IconExtractor {
                         icon = extractIconLinux(key, executablePath);
                     }
 
+                    // 4. Нашли? Сохраняем в RAM и в ДИСКОВЫЙ кэш!
                     if (icon != null) {
                         ICON_CACHE.put(key, icon);
+                        saveIconToDiskCache(icon, cachedFile);
                     }
                 } finally {
                     PENDING_SEARCH.remove(key);
@@ -95,10 +132,20 @@ public class IconExtractor {
         return getDefaultIcon();
     }
 
+    private static void saveIconToDiskCache(Image image, File targetFile) {
+        try {
+            BufferedImage bufferedImage = SwingFXUtils.fromFXImage(image, null);
+            if (bufferedImage != null) {
+                ImageIO.write(bufferedImage, "png", targetFile);
+            }
+        } catch (IOException ignored) {
+            // Игнорируем ошибки записи диска
+        }
+    }
+
     private static Image extractIconLinux(String processName, String executablePath) {
         String name = processName.toLowerCase().trim();
 
-        // 1. Проверяем алиасы
         if (KNOWN_ALIASES.containsKey(name)) {
             for (String alias : KNOWN_ALIASES.get(name)) {
                 Image img = searchIconInSystemFast(alias);
@@ -106,14 +153,12 @@ public class IconExtractor {
             }
         }
 
-        // 2. Прямой поиск
-        Image img = searchIconInSystemFast(processName); // пробуем оригинальное имя с регистром
+        Image img = searchIconInSystemFast(processName);
         if (img != null) return img;
 
         img = searchIconInSystemFast(name);
         if (img != null) return img;
 
-        // 3. Короткое имя без доменов (например, org.kde.kate -> kate)
         if (name.contains(".")) {
             String shortName = name.substring(name.lastIndexOf('.') + 1);
             img = searchIconInSystemFast(shortName);
@@ -127,7 +172,6 @@ public class IconExtractor {
             }
         }
 
-        // 4. Сканирование .desktop файлов
         String iconFromDesktop = findIconFromDesktop(name, executablePath);
         if (iconFromDesktop != null) {
             img = searchIconInSystemFast(iconFromDesktop);
@@ -190,19 +234,15 @@ public class IconExtractor {
         }
 
         String userHome = System.getProperty("user.home");
-
-        // Проверяем с сохранением чувствительности к регистру (для com.spotify.Client)
         String[] variants = { iconName, iconName.toLowerCase() };
 
         for (String cleanName : variants) {
             String[] fastPaths = {
-                    // Flatpak (Spotify часто лежит тут с регистром!)
                     "/var/lib/flatpak/exports/share/icons/hicolor/48x48/apps/" + cleanName + ".png",
                     "/var/lib/flatpak/exports/share/icons/hicolor/64x64/apps/" + cleanName + ".png",
                     "/var/lib/flatpak/exports/share/icons/hicolor/scalable/apps/" + cleanName + ".svg",
                     userHome + "/.local/share/flatpak/exports/share/icons/hicolor/48x48/apps/" + cleanName + ".png",
 
-                    // Системные иконы
                     "/usr/share/pixmaps/" + cleanName + ".png",
                     "/usr/share/pixmaps/" + cleanName + ".svg",
                     "/usr/share/icons/hicolor/48x48/apps/" + cleanName + ".png",

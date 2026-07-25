@@ -2,6 +2,7 @@ package com.frogilik.timestats.ui;
 
 import com.frogilik.timestats.service.TrackingService;
 import com.frogilik.timestats.service.TrackingService.TimePeriod;
+import com.frogilik.timestats.util.AppVersion;
 import javafx.animation.KeyFrame;
 import javafx.animation.KeyValue;
 import javafx.animation.Timeline;
@@ -10,6 +11,8 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.util.Duration;
 
@@ -55,7 +58,7 @@ public class SidebarView extends VBox {
         );
 
         // 2. Вложенный контейнер для подпунктов
-        periodsSubMenu = new VBox(2); // Уменьшили межстрочный зазор для чёткости
+        periodsSubMenu = new VBox(2);
         periodsSubMenu.setPadding(new Insets(0, 0, 0, 10));
 
         // Начальное состояние: полностью скрыто
@@ -70,7 +73,7 @@ public class SidebarView extends VBox {
             Button subItem = new Button("• " + period.getTitle());
             subItem.setMaxWidth(Double.MAX_VALUE);
             subItem.setAlignment(Pos.CENTER_LEFT);
-            subItem.setPrefHeight(28); // Фиксированная высота кнопки убирает тряску текста при подсчете
+            subItem.setPrefHeight(28);
             subItem.setStyle(
                     "-fx-background-color: transparent; " +
                             "-fx-text-fill: #bac2de; " +
@@ -78,7 +81,6 @@ public class SidebarView extends VBox {
                             "-fx-cursor: hand;"
             );
 
-            // Эффект наведения на пункт списка
             subItem.setOnMouseEntered(e -> subItem.setStyle("-fx-background-color: #45475a; -fx-text-fill: #a6e3a1; -fx-font-size: 12px; -fx-cursor: hand; -fx-background-radius: 4;"));
             subItem.setOnMouseExited(e -> subItem.setStyle("-fx-background-color: transparent; -fx-text-fill: #bac2de; -fx-font-size: 12px; -fx-cursor: hand;"));
 
@@ -98,14 +100,10 @@ public class SidebarView extends VBox {
         }
 
         // --- ЛОГИКА НАВЕДЕНИЯ И ЗАКРЫТИЯ ПРИ УХОДЕ МЫШИ ---
-
-        // Открываем при наведении на главную кнопку
         periodButton.setOnMouseEntered(e -> toggleSubMenu(true));
         periodButton.setOnAction(e -> toggleSubMenu(!isMenuExpanded));
 
-        // Автозакрытие при уходе мыши с области списка кнопок
         periodsSubMenu.setOnMouseExited(e -> {
-            // Проверяем, что мышь действительно ушла наружу, а не вернулась на главную кнопку
             if (!periodButton.isHover()) {
                 toggleSubMenu(false);
             }
@@ -115,7 +113,16 @@ public class SidebarView extends VBox {
         Button btnAnalytics = UiFactory.createSidebarButton("📊  Аналитика", false);
         Button btnSettings = UiFactory.createSidebarButton("⚙️  Настройки", false);
 
-        getChildren().addAll(logo, periodButton, periodsSubMenu, btnAnalytics, btnSettings);
+        // === ПРУЖИНА (РАСПОРКА) ДЛЯ ПРИЖАТИЯ ВЕРСИИ ВНИЗ ===
+        Region spacer = new Region();
+        VBox.setVgrow(spacer, Priority.ALWAYS);
+
+        // === МЕТКА ВЕРСИИ ПРИЛОЖЕНИЯ ===
+        Label versionLabel = new Label("v" + AppVersion.getVersion());
+        versionLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #6c7086; -fx-padding: 5 0 0 10;");
+
+        // Добавляем все элементы, включая пружину и версию
+        getChildren().addAll(logo, periodButton, periodsSubMenu, btnAnalytics, btnSettings, spacer, versionLabel);
 
         // При выходе курсора из всего сайдбара — сворачиваем меню и прячем панель
         setOnMouseExited(e -> {
@@ -125,7 +132,7 @@ public class SidebarView extends VBox {
     }
 
     /**
-     * Плавное и плавное раздвижение/сжатие без подёргиваний
+     * Плавное раздвижение/сжатие без подёргиваний
      */
     private void toggleSubMenu(boolean expand) {
         if (isMenuExpanded == expand) return;
@@ -135,7 +142,6 @@ public class SidebarView extends VBox {
             menuAnimation.stop();
         }
 
-        // Точный расчет высоты (28px высота кнопки + 2px зазор между ними)
         double targetHeight = expand ? (periodsSubMenu.getChildren().size() * 30.0) : 0.0;
 
         if (expand) {
@@ -143,13 +149,12 @@ public class SidebarView extends VBox {
             periodsSubMenu.setManaged(true);
         }
 
-        // Анимируем строгий диапазон высот (prefHeight & maxHeight)
         menuAnimation = new Timeline(
                 new KeyFrame(Duration.ZERO,
                         new KeyValue(periodsSubMenu.prefHeightProperty(), periodsSubMenu.getPrefHeight()),
                         new KeyValue(periodsSubMenu.maxHeightProperty(), periodsSubMenu.getMaxHeight())
                 ),
-                new KeyFrame(Duration.millis(180), // Оптимальная длительность для плавных 60 FPS
+                new KeyFrame(Duration.millis(180),
                         new KeyValue(periodsSubMenu.prefHeightProperty(), targetHeight),
                         new KeyValue(periodsSubMenu.maxHeightProperty(), targetHeight)
                 )

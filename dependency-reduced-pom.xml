@@ -18,7 +18,7 @@
             <configuration>
               <transformers>
                 <transformer>
-                  <mainClass>com.frogilik.timestats.Main</mainClass>
+                  <mainClass>com.frogilik.timestats.Launcher</mainClass>
                 </transformer>
               </transformers>
               <filters>

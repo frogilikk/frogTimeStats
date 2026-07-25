@@ -27,8 +27,14 @@
             <artifactId>javafx-fxml</artifactId>
             <version>${javafx.version}</version>
         </dependency>
+        <!-- JavaFX Swing (для работы IconExtractor) -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-swing</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
 
-        <!-- JNA: Взаимодействие с системными функциями (Windows/Linux) -->
+        <!-- JNA: Системные функции (Windows/Linux) -->
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
@@ -63,6 +69,14 @@
     </dependencies>
 
     <build>
+        <!-- Включаем фильтрацию ресурсов, чтобы переменные из pom.xml подставлялись в app.properties -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+            </resource>
+        </resources>
+
         <plugins>
             <!-- Maven Shade Plugin (Сборка Fat-JAR) -->
             <plugin>
@@ -77,8 +91,9 @@
                         </goals>
                         <configuration>
                             <transformers>
+                                <!-- Объединяет META-INF/services (критично для SQLite JDBC и SystemTray) -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <!-- Точка входа: класс Launcher -->
                                     <mainClass>com.frogilik.timestats.Launcher</mainClass>
                                 </transformer>
                             </transformers>
@@ -112,10 +127,9 @@
                         <configuration>
                             <headerType>gui</headerType>
                             <outfile>target/frogTimeStats.exe</outfile>
-                            <jar>target/frogTimeStats-1.0-SNAPSHOT.jar</jar>
+                            <jar>target/frogTimeStats-${project.version}.jar</jar>
                             <errTitle>frogTimeStats Error</errTitle>
                             <classPath>
-                                <!-- Точка входа совпадает с Shade -->
                                 <mainClass>com.frogilik.timestats.Launcher</mainClass>
                             </classPath>
                             <jre>
@@ -124,11 +138,21 @@
                                 <bundledJreAsFallback>false</bundledJreAsFallback>
                                 <minVersion>21</minVersion>
                                 <opts>
+                                    <!-- Ограничения и настройки памяти -->
                                     <opt>-Xms8m</opt>
-                                    <opt>-Xmx64m</opt>
+                                    <opt>-Xmx48m</opt>
+                                    <opt>-XX:ReservedCodeCacheSize=32m</opt>
+                                    <opt>-Xss256k</opt>
+
+                                    <!-- Сборка мусора и сжатие ОЗУ -->
                                     <opt>-XX:+UseG1GC</opt>
-                                    <opt>-XX:G1PeriodicGCInterval=10000</opt>
+                                    <opt>-XX:G1PeriodicGCInterval=5000</opt>
                                     <opt>-XX:G1PeriodicGCSystemLoadThreshold=0</opt>
+                                    <opt>-XX:MaxHeapFreeRatio=20</opt>
+                                    <opt>-XX:MinHeapFreeRatio=10</opt>
+
+                                    <!-- Графический стек JavaFX -->
+                                    <opt>-Dprism.order=d3d,sw</opt>
                                 </opts>
                             </jre>
                         </configuration>

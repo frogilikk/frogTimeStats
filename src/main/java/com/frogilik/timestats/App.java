@@ -15,9 +15,23 @@ import java.awt.image.BufferedImage;
 
 public class App extends Application {
 
+    private static App instance; // Ссылка на текущий запущенный экземпляр App
     private Stage primaryStage;
     private TrackingService trackingService;
     private MainViewController mainViewController;
+
+    public App() {
+        instance = this; // Сохраняем ссылку при старте
+    }
+
+    /**
+     * Статический метод, который вызывает Main при попытке повторного запуска
+     */
+    public static void restoreWindow() {
+        if (instance != null) {
+            instance.showStage();
+        }
+    }
 
     @Override
     public void start(Stage stage) {
@@ -52,7 +66,7 @@ public class App extends Application {
                 primaryStage.hide();
                 System.out.println(">>> Окно скрыто в трей");
 
-                // 1. Окращаем работу UI в фоновом режиме
+                // 1. Сокращаем работу UI в фоновом режиме
                 if (mainViewController != null) {
                     mainViewController.stopAutoUpdate();
                 }
@@ -63,8 +77,8 @@ public class App extends Application {
         });
     }
 
-    private void showStage() {
-        System.out.println(">>> Запрос на открытие окна из трея...");
+    public void showStage() {
+        System.out.println(">>> Запрос на открытие окна из трея/повторного запуска...");
         Platform.runLater(() -> {
             if (primaryStage == null) return;
 
