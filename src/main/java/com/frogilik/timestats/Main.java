@@ -3,8 +3,10 @@ package com.frogilik.timestats;
 import com.frogilik.timestats.core.LinuxWindowTracker;
 import com.frogilik.timestats.core.WindowTracker;
 import com.frogilik.timestats.core.WindowsWindowTracker;
+import com.frogilik.timestats.model.AppSettings;
 import com.frogilik.timestats.repository.ActivityRepository;
 import com.frogilik.timestats.repository.DatabaseManager;
+import com.frogilik.timestats.repository.SettingsRepository;
 import com.frogilik.timestats.service.AutoStartService;
 import com.frogilik.timestats.service.TrackingService;
 import com.frogilik.timestats.util.SingleInstanceManager;
@@ -14,18 +16,32 @@ import javafx.application.Application;
 public class Main {
 
     private static TrackingService trackingService;
+    private static AppSettings appSettings;
+    private static SettingsRepository settingsRepository;
 
     public static TrackingService getTrackingService() {
         return trackingService;
     }
 
+    public static AppSettings getAppSettings() {
+        return appSettings;
+    }
+
+    public static SettingsRepository getSettingsRepository() {
+        return settingsRepository;
+    }
+
     public static void main(String[] args) {
-        // === ПРОВЕРКА НА ЕДИНСТВЕННЫЙ ЭКЗЕМПЛЯР (САМЫМ ПЕРВЫМ ДЕЛОМ) ===
+        // === ПРОВЕРКА НА ЕДИНСТВЕННЫЙ ЭКЗЕМПЛЯР ===
         if (SingleInstanceManager.isAlreadyRunning(App::restoreWindow)) {
             System.out.println("Приложение уже запущено! Показываем окно и завершаем дубликат.");
             System.exit(0);
             return;
         }
+
+        // Загружаем сохраненные настройки с диска
+        settingsRepository = new SettingsRepository();
+        appSettings = settingsRepository.load();
 
         // Принудительно задаем GTK3 для Dorkbox и JavaFX под Linux
         System.setProperty("jdk.gtk.version", "3");

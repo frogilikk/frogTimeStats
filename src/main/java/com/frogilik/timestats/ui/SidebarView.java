@@ -1,5 +1,6 @@
 package com.frogilik.timestats.ui;
 
+import com.frogilik.timestats.model.ThemePalette;
 import com.frogilik.timestats.service.TrackingService;
 import com.frogilik.timestats.service.TrackingService.TimePeriod;
 import com.frogilik.timestats.util.AppVersion;
@@ -16,6 +17,8 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.util.Duration;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 
 public class SidebarView extends VBox {
@@ -23,66 +26,69 @@ public class SidebarView extends VBox {
     private final TranslateTransition transition;
     private final double sidebarWidth = 200;
 
+    private final Label logoLabel;
     private final Button periodButton;
     private final VBox periodsSubMenu;
+    private final List<Button> subMenuButtons = new ArrayList<>();
+    private final Button btnAnalytics;
+    private final Button btnSettings;
+    private final Label versionLabel;
+
     private boolean isMenuExpanded = false;
     private Timeline menuAnimation;
 
-    public SidebarView(TrackingService trackingService, Consumer<TimePeriod> onPeriodChanged) {
+    private Button activeNavButton = null;
+    private ThemePalette currentTheme;
+
+    public SidebarView(TrackingService trackingService,
+                       Consumer<TimePeriod> onPeriodChanged,
+                       Runnable onMainViewClicked,
+                       Runnable onSettingsClicked) {
         super(10);
         setPrefWidth(sidebarWidth);
         setMaxWidth(sidebarWidth);
         setPadding(new Insets(20, 10, 20, 10));
-        setStyle("-fx-background-color: #181825; -fx-border-color: #313244; -fx-border-width: 0 1 0 0;");
 
-        // Изначально смещаем весь сайдбар влево за пределы экрана
+        // Смещение влево за пределы экрана
         setTranslateX(-sidebarWidth);
 
-        // Настраиваем анимацию выезда самого сайдбара
+        // Настройка анимации выезда
         transition = new TranslateTransition(Duration.millis(200), this);
 
-        Label logo = new Label("frogTimeStats");
-        logo.setStyle("-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: #a6e3a1; -fx-padding: 0 0 15 10;");
+        logoLabel = new Label("frogTimeStats");
 
-        // 1. Главная кнопка выбора периода
+        // 1. Создаём кнопки навигации
+        btnAnalytics = UiFactory.createSidebarButton("📊  Аналитика", false);
+        btnSettings = UiFactory.createSidebarButton("⚙️  Настройки", false);
+
+        setupNavButtonEffects(btnAnalytics, () -> {
+            if (onMainViewClicked != null) onMainViewClicked.run();
+        });
+
+        setupNavButtonEffects(btnSettings, () -> {
+            if (onSettingsClicked != null) onSettingsClicked.run();
+        });
+
+        // 2. Главная выпадающая кнопка выбора периода
         periodButton = new Button("📅  " + trackingService.getCurrentPeriod().getTitle() + "  ▾");
         periodButton.setMaxWidth(Double.MAX_VALUE);
         periodButton.setAlignment(Pos.CENTER_LEFT);
-        periodButton.setStyle(
-                "-fx-background-color: #313244; " +
-                        "-fx-text-fill: #cdd6f4; " +
-                        "-fx-font-size: 13px; " +
-                        "-fx-font-weight: bold; " +
-                        "-fx-background-radius: 6; " +
-                        "-fx-cursor: hand;"
-        );
 
-        // 2. Вложенный контейнер для подпунктов
+        // 3. Контейнер для подпунктов периодов
         periodsSubMenu = new VBox(2);
         periodsSubMenu.setPadding(new Insets(0, 0, 0, 10));
 
-        // Начальное состояние: полностью скрыто
         periodsSubMenu.setPrefHeight(0);
         periodsSubMenu.setMinHeight(0);
         periodsSubMenu.setMaxHeight(0);
         periodsSubMenu.setVisible(false);
         periodsSubMenu.setManaged(false);
 
-        // Заполняем подменю кнопками периодов
         for (TimePeriod period : TimePeriod.values()) {
             Button subItem = new Button("• " + period.getTitle());
             subItem.setMaxWidth(Double.MAX_VALUE);
             subItem.setAlignment(Pos.CENTER_LEFT);
             subItem.setPrefHeight(28);
-            subItem.setStyle(
-                    "-fx-background-color: transparent; " +
-                            "-fx-text-fill: #bac2de; " +
-                            "-fx-font-size: 12px; " +
-                            "-fx-cursor: hand;"
-            );
-
-            subItem.setOnMouseEntered(e -> subItem.setStyle("-fx-background-color: #45475a; -fx-text-fill: #a6e3a1; -fx-font-size: 12px; -fx-cursor: hand; -fx-background-radius: 4;"));
-            subItem.setOnMouseExited(e -> subItem.setStyle("-fx-background-color: transparent; -fx-text-fill: #bac2de; -fx-font-size: 12px; -fx-cursor: hand;"));
 
             subItem.setOnAction(e -> {
                 trackingService.setTimePeriod(period);
@@ -92,39 +98,32 @@ public class SidebarView extends VBox {
                     onPeriodChanged.accept(period);
                 }
 
+                if (onMainViewClicked != null) {
+                    onMainViewClicked.run();
+                    setActiveNavButton(btnAnalytics);
+                }
+
                 toggleSubMenu(false);
                 hide();
             });
 
+            subMenuButtons.add(subItem);
             periodsSubMenu.getChildren().add(subItem);
         }
 
-        // --- ЛОГИКА НАВЕДЕНИЯ И ЗАКРЫТИЯ ПРИ УХОДЕ МЫШИ ---
-        periodButton.setOnMouseEntered(e -> toggleSubMenu(true));
+        // Выпадающее меню переключается по клику
         periodButton.setOnAction(e -> toggleSubMenu(!isMenuExpanded));
 
-        periodsSubMenu.setOnMouseExited(e -> {
-            if (!periodButton.isHover()) {
-                toggleSubMenu(false);
-            }
-        });
+        // Устанавливаем активную кнопку
+        setActiveNavButton(btnAnalytics);
 
-        // Остальные кнопки
-        Button btnAnalytics = UiFactory.createSidebarButton("📊  Аналитика", false);
-        Button btnSettings = UiFactory.createSidebarButton("⚙️  Настройки", false);
-
-        // === ПРУЖИНА (РАСПОРКА) ДЛЯ ПРИЖАТИЯ ВЕРСИИ ВНИЗ ===
         Region spacer = new Region();
         VBox.setVgrow(spacer, Priority.ALWAYS);
 
-        // === МЕТКА ВЕРСИИ ПРИЛОЖЕНИЯ ===
-        Label versionLabel = new Label("v" + AppVersion.getVersion());
-        versionLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #6c7086; -fx-padding: 5 0 0 10;");
+        versionLabel = new Label("v" + AppVersion.getVersion());
 
-        // Добавляем все элементы, включая пружину и версию
-        getChildren().addAll(logo, periodButton, periodsSubMenu, btnAnalytics, btnSettings, spacer, versionLabel);
+        getChildren().addAll(logoLabel, periodButton, periodsSubMenu, btnAnalytics, btnSettings, spacer, versionLabel);
 
-        // При выходе курсора из всего сайдбара — сворачиваем меню и прячем панель
         setOnMouseExited(e -> {
             toggleSubMenu(false);
             hide();
@@ -132,8 +131,115 @@ public class SidebarView extends VBox {
     }
 
     /**
-     * Плавное раздвижение/сжатие без подёргиваний
+     * Динамическое применение темы ко всей боковой панели и её элементам
      */
+    public void applyTheme(ThemePalette theme) {
+        if (theme == null) return;
+        this.currentTheme = theme;
+
+        // Фон панели и border справа
+        setStyle(String.format(
+                "-fx-background-color: %s; -fx-border-color: %s; -fx-border-width: 0 1 0 0;",
+                theme.getCardBgColor(), theme.getPrimaryColor()
+        ));
+
+        // Логотип
+        logoLabel.setStyle(String.format(
+                "-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: %s; -fx-padding: 0 0 15 10;",
+                theme.getPrimaryColor()
+        ));
+
+        // Выпадающая кнопка периода
+        periodButton.setStyle(String.format(
+                "-fx-background-color: %s; -fx-text-fill: %s; -fx-font-size: 13px; -fx-font-weight: bold; -fx-background-radius: 6; -fx-cursor: hand;",
+                theme.getBgColor(), theme.getTextColor()
+        ));
+
+        // Кнопки подменю периодов
+        for (Button subItem : subMenuButtons) {
+            updateSubItemStyle(subItem, false);
+            subItem.setOnMouseEntered(e -> updateSubItemStyle(subItem, true));
+            subItem.setOnMouseExited(e -> updateSubItemStyle(subItem, false));
+        }
+
+        // Обновление стиля активной и неактивных кнопок навигации
+        updateNavButtonStyles();
+
+        // Футер версии
+        versionLabel.setStyle(String.format(
+                "-fx-font-size: 11px; -fx-text-fill: %s; -fx-padding: 5 0 0 10;",
+                theme.getSubtextColor()
+        ));
+    }
+
+    private void updateSubItemStyle(Button subItem, boolean isHover) {
+        if (currentTheme == null) return;
+        if (isHover) {
+            subItem.setStyle(String.format(
+                    "-fx-background-color: %s; -fx-text-fill: %s; -fx-font-size: 12px; -fx-cursor: hand; -fx-background-radius: 4;",
+                    currentTheme.getBgColor(), currentTheme.getPrimaryColor()
+            ));
+        } else {
+            subItem.setStyle(String.format(
+                    "-fx-background-color: transparent; -fx-text-fill: %s; -fx-font-size: 12px; -fx-cursor: hand;",
+                    currentTheme.getSubtextColor()
+            ));
+        }
+    }
+
+    private void setupNavButtonEffects(Button button, Runnable action) {
+        button.setMaxWidth(Double.MAX_VALUE);
+
+        button.setOnMouseEntered(e -> {
+            if (button != activeNavButton && currentTheme != null) {
+                button.setStyle(String.format(
+                        "-fx-background-color: %s; -fx-text-fill: %s; -fx-font-size: 13px; -fx-alignment: CENTER_LEFT; -fx-padding: 8 12; -fx-background-radius: 6; -fx-cursor: hand;",
+                        currentTheme.getBgColor(), currentTheme.getTextColor()
+                ));
+            }
+        });
+
+        button.setOnMouseExited(e -> {
+            if (button != activeNavButton && currentTheme != null) {
+                setNormalNavButtonStyle(button);
+            }
+        });
+
+        button.setOnAction(e -> {
+            setActiveNavButton(button);
+            if (action != null) action.run();
+            hide();
+        });
+    }
+
+    private void setActiveNavButton(Button button) {
+        activeNavButton = button;
+        updateNavButtonStyles();
+    }
+
+    private void updateNavButtonStyles() {
+        if (currentTheme == null) return;
+
+        setNormalNavButtonStyle(btnAnalytics);
+        setNormalNavButtonStyle(btnSettings);
+
+        if (activeNavButton != null) {
+            // Активная кнопка выделяется основным цветом акцента и более темной подложкой
+            activeNavButton.setStyle(String.format(
+                    "-fx-background-color: %s; -fx-text-fill: %s; -fx-font-size: 13px; -fx-font-weight: bold; -fx-alignment: CENTER_LEFT; -fx-padding: 8 12; -fx-background-radius: 6; -fx-cursor: hand;",
+                    currentTheme.getBgColor(), currentTheme.getPrimaryColor()
+            ));
+        }
+    }
+
+    private void setNormalNavButtonStyle(Button button) {
+        if (currentTheme == null) return;
+        button.setStyle(String.format(
+                "-fx-background-color: transparent; -fx-text-fill: %s; -fx-font-size: 13px; -fx-alignment: CENTER_LEFT; -fx-padding: 8 12; -fx-background-radius: 6; -fx-cursor: hand;",
+                currentTheme.getTextColor()
+        ));
+    }
+
     private void toggleSubMenu(boolean expand) {
         if (isMenuExpanded == expand) return;
         isMenuExpanded = expand;

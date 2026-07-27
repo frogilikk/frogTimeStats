@@ -1,6 +1,9 @@
 package com.frogilik.timestats.ui;
 
+import com.frogilik.timestats.Main;
 import com.frogilik.timestats.model.AppActivity;
+import com.frogilik.timestats.model.AppSettings;
+import com.frogilik.timestats.model.ThemePalette;
 import com.frogilik.timestats.service.TrackingService;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
@@ -21,9 +24,16 @@ public class MainViewController {
 
     private final StackPane root;
     private final TrackingService trackingService;
+    private final AppSettings settings;
     private Timeline autoUpdateTimeline;
 
-    // Компоненты
+    // Контейнеры экранов
+    private final ScrollPane analyticsScrollPane;
+    private final VBox scrollContent;
+    private final SettingsView settingsView;
+    private final StackPane fixedWaveContainer;
+
+    // Компоненты экрана аналитики
     private final HeaderWidget headerWidget;
     private final CustomPieChartWidget pieChartWidget;
     private final WaveProgressBar waveProgressBar;
@@ -31,6 +41,9 @@ public class MainViewController {
     private final SidebarView sidebarView;
     private final Label totalTimeValueLabel;
     private final Label topAppValueLabel;
+    private final Label detailsTitle;
+    private final VBox cardTotal;
+    private final VBox cardTopApp;
 
     // Кэш процессов и цветов
     private final Map<String, ProcessRowWidget> processRowMap = new HashMap<>();
@@ -38,30 +51,29 @@ public class MainViewController {
 
     public MainViewController(TrackingService trackingService) {
         this.trackingService = trackingService;
+        this.settings = (Main.getAppSettings() != null) ? Main.getAppSettings() : new AppSettings();
 
         root = new StackPane();
         root.setPrefSize(950, 650);
-        root.setStyle("-fx-background-color: #1e1e2e; -fx-font-family: 'Segoe UI', sans-serif;");
 
-        // 1. Создаем виджеты
+        // 1. Создаем виджеты аналитики
         headerWidget = new HeaderWidget();
         pieChartWidget = new CustomPieChartWidget();
 
         totalTimeValueLabel = new Label("0ч 0мин");
-        VBox cardTotal = UiFactory.createMetricCard("Всего активен:", totalTimeValueLabel);
+        cardTotal = UiFactory.createMetricCard("Всего активен:", totalTimeValueLabel);
 
         topAppValueLabel = new Label("—");
-        VBox cardTopApp = UiFactory.createMetricCard("Топ приложение:", topAppValueLabel);
+        cardTopApp = UiFactory.createMetricCard("Топ приложение:", topAppValueLabel);
         HBox cardsBox = new HBox(15, cardTotal, cardTopApp);
 
-        Label detailsTitle = new Label("Детализация:");
-        detailsTitle.setStyle("-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: #a6adc8;");
+        detailsTitle = new Label("Детализация:");
+        detailsTitle.setStyle("-fx-font-size: 14px; -fx-font-weight: bold;");
         detailsListContainer = new VBox(10);
 
-        // 2. Основное содержимое
-        VBox scrollContent = new VBox(15);
+        // 2. Основное содержимое аналитики
+        scrollContent = new VBox(15);
         scrollContent.setPadding(new Insets(20));
-        scrollContent.setStyle("-fx-background-color: #1e1e2e;");
         scrollContent.getChildren().addAll(
                 headerWidget,
                 pieChartWidget,
@@ -70,25 +82,19 @@ public class MainViewController {
                 detailsListContainer
         );
 
-        // 3. ScrollPane
-        ScrollPane scrollPane = new ScrollPane(scrollContent);
-        scrollPane.setFitToWidth(true);
-        scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scrollPane.setStyle(
-                "-fx-background-color: #1e1e2e; " +
-                        "-fx-background: #1e1e2e; " +
-                        "-fx-border-color: #1e1e2e; " +
-                        "-fx-viewport-background-color: #1e1e2e;"
-        );
+        // 3. ScrollPane для аналитики
+        analyticsScrollPane = new ScrollPane(scrollContent);
+        analyticsScrollPane.setFitToWidth(true);
+        analyticsScrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        analyticsScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
-        // 4. Закрепленная прямоугольная диаграмма
+        // 4. Закрепленная прямоугольная диаграмма (Волна)
         waveProgressBar = new WaveProgressBar();
         waveProgressBar.setPrefHeight(40);
         waveProgressBar.setMaxHeight(40);
         waveProgressBar.setMaxWidth(890);
 
-        StackPane fixedWaveContainer = new StackPane(waveProgressBar);
+        fixedWaveContainer = new StackPane(waveProgressBar);
         fixedWaveContainer.setAlignment(Pos.TOP_CENTER);
         fixedWaveContainer.setPadding(new Insets(60, 20, 0, 20));
         fixedWaveContainer.setPickOnBounds(false);
@@ -97,22 +103,23 @@ public class MainViewController {
 
         waveProgressBar.setOpacity(0.0);
 
-        // --- 1. ОПТИМАЛЬНАЯ СКОРОСТЬ ПРОКРУТКИ СПИСКА ---
+        // --- СКРОЛЛ И СЖАТИЕ ДИАГРАММЫ ---
         final double SCROLL_SPEED = 0.05;
 
         root.addEventFilter(ScrollEvent.SCROLL, event -> {
+            if (!analyticsScrollPane.isVisible()) return;
+
             event.consume();
 
             double deltaY = event.getDeltaY();
             if (deltaY == 0) return;
 
             double direction = deltaY > 0 ? -1.0 : 1.0;
-            double newVvalue = scrollPane.getVvalue() + (direction * SCROLL_SPEED);
-            scrollPane.setVvalue(Math.min(1.0, Math.max(0.0, newVvalue)));
+            double newVvalue = analyticsScrollPane.getVvalue() + (direction * SCROLL_SPEED);
+            analyticsScrollPane.setVvalue(Math.min(1.0, Math.max(0.0, newVvalue)));
         });
 
-        // --- 2. СЖАТИЕ ДИАГРАММЫ ПРИ СКРОЛЛЕ ---
-        scrollPane.vvalueProperty().addListener((obs, oldVal, newVal) -> {
+        analyticsScrollPane.vvalueProperty().addListener((obs, oldVal, newVal) -> {
             double scroll = newVal.doubleValue();
 
             if (scroll <= 0.0) {
@@ -125,7 +132,7 @@ public class MainViewController {
             }
 
             double contentHeight = scrollContent.getBoundsInLocal().getHeight();
-            double viewportHeight = scrollPane.getViewportBounds().getHeight();
+            double viewportHeight = analyticsScrollPane.getViewportBounds().getHeight();
             double maxScrollPx = contentHeight - viewportHeight;
 
             double scrollPx = (maxScrollPx > 0) ? scroll * maxScrollPx : scroll * CustomPieChartWidget.DEFAULT_HEIGHT;
@@ -145,23 +152,97 @@ public class MainViewController {
             pieChartWidget.setVisible(targetHeight > 0.5);
         });
 
-        // --- 5. САЙДБАР С ВЫБОРОМ ПЕРИОДА ВРЕМЕНИ ---
-        sidebarView = new SidebarView(trackingService, selectedPeriod -> {
-            // При смене периода очищаем старые виджеты строк для корректной перерисовоки
-            processRowMap.clear();
-            detailsListContainer.getChildren().clear();
-
-            // Загружаем статистику за выбранный период
-            loadData();
-        });
+        // 5. САЙДБАР
+        sidebarView = new SidebarView(
+                trackingService,
+                selectedPeriod -> {
+                    processRowMap.clear();
+                    detailsListContainer.getChildren().clear();
+                    showAnalyticsScreen();
+                    loadData();
+                },
+                this::showAnalyticsScreen,
+                this::showSettingsScreen
+        );
 
         StackPane.setAlignment(sidebarView, Pos.TOP_LEFT);
+
+        // 6. СОЗДАЕМ ЭКРАН НАСТРОЕК С ПЕРЕДАЧЕЙ SettingsRepository
+        settingsView = new SettingsView(
+                settings,
+                Main.getSettingsRepository(),
+                this::applyThemeToAllUI,
+                sidebarView::show
+        );
+        settingsView.setVisible(false);
+
         headerWidget.getMenuIcon().setOnMouseEntered(e -> sidebarView.show());
 
-        root.getChildren().addAll(scrollPane, fixedWaveContainer, sidebarView);
+        if (settingsView.getMenuIcon() != null) {
+            settingsView.getMenuIcon().setOnMouseEntered(e -> sidebarView.show());
+        }
+
+        root.getChildren().addAll(analyticsScrollPane, settingsView, fixedWaveContainer, sidebarView);
+
+        // Применяем сохраненную тему при запуске
+        applyThemeToAllUI(settings.getCurrentTheme());
 
         loadData();
         startAutoUpdate();
+    }
+
+    private void applyThemeToAllUI(ThemePalette theme) {
+        if (theme == null) return;
+
+        // 1. Главный фон и скролл
+        root.setStyle(String.format("-fx-background-color: %s; -fx-font-family: 'Segoe UI', sans-serif;", theme.getBgColor()));
+        scrollContent.setStyle(String.format("-fx-background-color: %s;", theme.getBgColor()));
+        analyticsScrollPane.setStyle(String.format(
+                "-fx-background-color: %s; -fx-background: %s; -fx-border-color: transparent; -fx-viewport-background-color: %s;",
+                theme.getBgColor(), theme.getBgColor(), theme.getBgColor()
+        ));
+
+        // 2. Карточки и тексты аналитики
+        detailsTitle.setStyle(String.format("-fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: %s;", theme.getSubtextColor()));
+
+        String cardStyle = String.format(
+                "-fx-background-color: %s; -fx-background-radius: 10; -fx-border-color: %s; -fx-border-radius: 10; -fx-border-width: 1;",
+                theme.getCardBgColor(), theme.getPrimaryColor()
+        );
+        cardTotal.setStyle(cardStyle);
+        cardTopApp.setStyle(cardStyle);
+
+        totalTimeValueLabel.setStyle(String.format("-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: %s;", theme.getPrimaryColor()));
+        topAppValueLabel.setStyle(String.format("-fx-font-size: 18px; -fx-font-weight: bold; -fx-text-fill: %s;", theme.getPrimaryColor()));
+
+        // 3. Перекрашиваем Сайдбар
+        if (sidebarView != null) {
+            sidebarView.applyTheme(theme);
+        }
+
+        // 4. Перекрашиваем экран Настроек
+        if (settingsView != null) {
+            settingsView.applyThemeStyles(theme);
+        }
+
+        // 5. Перекрашиваем все строки процессов
+        for (ProcessRowWidget widget : processRowMap.values()) {
+            widget.applyTheme(theme);
+        }
+    }
+
+    private void showAnalyticsScreen() {
+        settingsView.setVisible(false);
+        analyticsScrollPane.setVisible(true);
+        fixedWaveContainer.setVisible(true);
+        sidebarView.hide();
+    }
+
+    private void showSettingsScreen() {
+        analyticsScrollPane.setVisible(false);
+        fixedWaveContainer.setVisible(false);
+        settingsView.setVisible(true);
+        sidebarView.hide();
     }
 
     public Parent getView() {
@@ -169,7 +250,11 @@ public class MainViewController {
     }
 
     public void startAutoUpdate() {
-        autoUpdateTimeline = new Timeline(new KeyFrame(Duration.seconds(1), e -> loadData()));
+        autoUpdateTimeline = new Timeline(new KeyFrame(Duration.seconds(1), e -> {
+            if (analyticsScrollPane.isVisible()) {
+                loadData();
+            }
+        }));
         autoUpdateTimeline.setCycleCount(Timeline.INDEFINITE);
         autoUpdateTimeline.play();
     }
@@ -244,7 +329,7 @@ public class MainViewController {
 
             ProcessRowWidget widget = processRowMap.get(processName);
             if (widget == null) {
-                widget = new ProcessRowWidget(index, act, percentage);
+                widget = new ProcessRowWidget(index, act, percentage, settings.getCurrentTheme());
                 processRowMap.put(processName, widget);
                 detailsListContainer.getChildren().add(widget.getNode());
             } else {
@@ -253,7 +338,6 @@ public class MainViewController {
             index++;
         }
 
-        // Удаляем приложения, у которых нет активности в выбранном периоде
         processRowMap.keySet().removeIf(procName -> {
             if (!activeProcessNames.contains(procName)) {
                 ProcessRowWidget widget = processRowMap.get(procName);
